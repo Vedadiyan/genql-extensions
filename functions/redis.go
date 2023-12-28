@@ -26,7 +26,7 @@ type (
 var (
 	_redisArgsFieldCount int
 	_redisOptionalFields map[string]int
-	_redisConnections    map[string]redis.Client
+	_redisConnections    map[string]*redis.Client
 	_redisConnectionLock sync.RWMutex
 )
 
@@ -37,6 +37,7 @@ func init() {
 	}
 	_redisArgsFieldCount = fields
 	_redisOptionalFields = optionalFields
+	_redisConnections = make(map[string]*redis.Client)
 }
 
 func RedisFunc(args []any) (any, error) {
@@ -53,15 +54,15 @@ func RedisFunc(args []any) (any, error) {
 	switch strings.ToLower(redisArgs.Command) {
 	case "cache":
 		{
-			return redisCache(&connection, redisArgs.Arg, time.Duration(redisArgs.TTL))
+			return redisCache(connection, redisArgs.Arg, time.Second*time.Duration(redisArgs.TTL))
 		}
 	case "set":
 		{
-			return redisSet(&connection, redisArgs.Key, args, time.Duration(redisArgs.TTL))
+			return redisSet(connection, redisArgs.Key, args, time.Second*time.Duration(redisArgs.TTL))
 		}
 	case "get":
 		{
-			return redisGet(&connection, redisArgs.Key)
+			return redisGet(connection, redisArgs.Key)
 		}
 	default:
 		{
@@ -110,9 +111,6 @@ func redisGet(conn *redis.Client, key string) (any, error) {
 
 func parseRedisArgs(rawArg []any) (*RedisArgs, error) {
 	len := len(rawArg)
-	if len > _redisArgsFieldCount {
-		return nil, sentinel.TOO_MANY_ARGS
-	}
 	if len < _redisArgsFieldCount {
 		return nil, sentinel.TOO_FEW_ARGS
 	}
@@ -130,6 +128,9 @@ func parseRedisArgs(rawArg []any) (*RedisArgs, error) {
 		Arg:            rawArg[2],
 	}
 	for key, value := range _redisOptionalFields {
+		if rawArg[value] == nil {
+			continue
+		}
 		if len <= value {
 			continue
 		}
@@ -144,18 +145,18 @@ func parseRedisArgs(rawArg []any) (*RedisArgs, error) {
 			}
 		case "TTL":
 			{
-				ttl, ok := rawArg[value].(int64)
+				ttl, ok := rawArg[value].(float64)
 				if !ok {
 					return nil, fmt.Errorf("expected int64 but found %T", rawArg[value])
 				}
-				redisArgs.TTL = ttl
+				redisArgs.TTL = int64(ttl)
 			}
 		}
 	}
 	return &redisArgs, nil
 }
 
-func RegisterRedisConnection(name string, instanceCreator func() (redis.Client, error)) error {
+func RegisterRedisConnection(name string, instanceCreator func() (*redis.Client, error)) error {
 	instance, err := instanceCreator()
 	if err != nil {
 		return err

@@ -3,12 +3,14 @@ package functions
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sync"
 	"text/template"
 
 	"github.com/vedadiyan/genql-extensions/sentinel"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -24,13 +26,13 @@ type (
 
 var (
 	_mongoArgsFieldCount int
-	_mongoConnections    map[string]mongo.Client
+	_mongoConnections    map[string]*mongo.Client
 	_mongoConnectionLock sync.RWMutex
 )
 
 func init() {
 	_mongoArgsFieldCount = reflect.TypeOf(MongoArgs{}).NumField()
-	_mongoConnections = make(map[string]mongo.Client)
+	_mongoConnections = make(map[string]*mongo.Client)
 }
 
 func MongoFunc(args []any) (any, error) {
@@ -38,12 +40,12 @@ func MongoFunc(args []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	template, err := template.ParseGlob(mongoArgs.Query)
+	template, err := template.New("tmp").Parse(mongoArgs.Query)
 	if err != nil {
 		return nil, err
 	}
-	var query bytes.Buffer
-	err = template.Execute(&query, mongoArgs.Args)
+	var queryRaw bytes.Buffer
+	err = template.Execute(&queryRaw, mongoArgs.Args)
 	if err != nil {
 		return nil, err
 	}
@@ -55,14 +57,23 @@ func MongoFunc(args []any) (any, error) {
 	}
 	database := connection.Database(mongoArgs.Database)
 	collection := database.Collection(mongoArgs.Collection)
+	var query bson.A
+	err = json.Unmarshal(queryRaw.Bytes(), &query)
+	if err != nil {
+		return nil, err
+	}
 	cursor, err := collection.Aggregate(context.TODO(), query)
 	if err != nil {
 		return nil, err
 	}
-	rs := make([]map[string]any, 0)
-	err = cursor.All(context.TODO(), &rs)
-	if err != nil {
-		return nil, err
+	rs := make([]any, 0)
+	for cursor.Next(context.TODO()) {
+		data := make(map[string]any)
+		err := json.Unmarshal([]byte(cursor.Current.String()), &data)
+		if err != nil {
+			return nil, err
+		}
+		rs = append(rs, data)
 	}
 	return rs, nil
 }
@@ -100,7 +111,7 @@ func parseMongoArgs(rawArg []any) (*MongoArgs, error) {
 	return &mongoArgs, nil
 }
 
-func RegisterMongoConnection(name string, instanceCreator func() (mongo.Client, error)) error {
+func RegisterMongoConnection(name string, instanceCreator func() (*mongo.Client, error)) error {
 	instance, err := instanceCreator()
 	if err != nil {
 		return err
