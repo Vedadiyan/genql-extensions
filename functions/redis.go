@@ -58,7 +58,7 @@ func RedisFunc(args []any) (any, error) {
 		}
 	case "set":
 		{
-			return redisSet(connection, redisArgs.Key, args, time.Second*time.Duration(redisArgs.TTL))
+			return redisSet(connection, redisArgs.Key, redisArgs.Arg, time.Second*time.Duration(redisArgs.TTL))
 		}
 	case "get":
 		{

@@ -11,6 +11,7 @@ import (
 
 	"github.com/vedadiyan/genql-extensions/sentinel"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -66,16 +67,99 @@ func MongoFunc(args []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rs := make([]any, 0)
-	for cursor.Next(context.TODO()) {
-		data := make(map[string]any)
-		err := json.Unmarshal([]byte(cursor.Current.String()), &data)
-		if err != nil {
-			return nil, err
-		}
-		rs = append(rs, data)
+	doc := bson.A{}
+	err = cursor.All(context.TODO(), &doc)
+	if err != nil {
+		return nil, err
 	}
+	rs := Unmarshal(doc)
 	return rs, nil
+}
+
+func Neutralize(any any) any {
+	switch any := any.(type) {
+	case int:
+		{
+			return float64(any)
+		}
+	case int32:
+		{
+			return float64(any)
+
+		}
+	case int64:
+		{
+			return float64(any)
+		}
+	case int16:
+		{
+			return float64(any)
+		}
+	case int8:
+		{
+			return float64(any)
+		}
+	case byte:
+		{
+			return float64(any)
+		}
+	case float32:
+		{
+			return float64(any)
+		}
+	default:
+		{
+			return any
+		}
+	}
+}
+
+func UnmarshalArray(data bson.A) any {
+	slice := make([]any, 0)
+	for _, value := range data {
+		slice = append(slice, Unmarshal(value))
+	}
+	return slice
+}
+
+func UnmarshalMap(data bson.M) any {
+	mapper := make(map[string]any)
+	for key, value := range data {
+		mapper[key] = Unmarshal(value)
+	}
+	return mapper
+}
+func UnmarshalDocument(document bson.D) any {
+	mapper := make(map[string]any)
+	for _, item := range document {
+		mapper[item.Key] = Unmarshal(item.Value)
+	}
+	return mapper
+}
+
+func Unmarshal(any any) any {
+	switch any := any.(type) {
+	case bson.D:
+		{
+			return UnmarshalDocument(any)
+		}
+	case bson.M:
+		{
+			return UnmarshalMap(any)
+		}
+	case bson.A:
+		{
+			return UnmarshalArray(any)
+		}
+	case primitive.ObjectID:
+		{
+			return any.String()
+		}
+	default:
+		{
+			return Neutralize(any)
+		}
+	}
 }
 
 func parseMongoArgs(rawArg []any) (*MongoArgs, error) {
