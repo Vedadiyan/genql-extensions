@@ -60,6 +60,10 @@ func RedisFunc(args []any) (any, error) {
 		{
 			return redisSet(connection, redisArgs.Key, redisArgs.Arg, time.Second*time.Duration(redisArgs.TTL))
 		}
+	case "changekey":
+		{
+			return redisChangeKey(connection, redisArgs.Key, redisArgs.Arg, time.Second*time.Duration(redisArgs.TTL))
+		}
 	case "get":
 		{
 			return redisGet(connection, redisArgs.Key)
@@ -94,6 +98,26 @@ func redisSet(conn *redis.Client, key string, args any, ttl time.Duration) (any,
 		return "", rs.Err()
 	}
 	return args, nil
+}
+
+func redisChangeKey(conn *redis.Client, key string, args any, ttl time.Duration) (any, error) {
+	newKey, ok := args.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected string but found %T", args)
+	}
+	value, err := conn.Get(context.TODO(), key).Result()
+	if err != nil {
+		return nil, err
+	}
+	_, err = conn.Del(context.TODO(), key).Result()
+	if err != nil {
+		return nil, err
+	}
+	_, err = conn.Set(context.TODO(), newKey, value, ttl).Result()
+	if err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 func redisGet(conn *redis.Client, key string) (any, error) {
