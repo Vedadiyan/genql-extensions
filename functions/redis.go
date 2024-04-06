@@ -28,6 +28,13 @@ var (
 	_redisOptionalFields map[string]int
 	_redisConnections    map[string]*redis.Client
 	_redisConnectionLock sync.RWMutex
+	_dictionary          = []rune{
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+		'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+		'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+		'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '_', '-',
+	}
 )
 
 func init() {
@@ -67,6 +74,18 @@ func RedisFunc(args []any) (any, error) {
 	case "get":
 		{
 			return redisGet(connection, redisArgs.Key)
+		}
+	case "incr":
+		{
+			return redisIncr(connection, redisArgs.Key)
+		}
+	case "incr/base64":
+		{
+			rs, err := redisIncr(connection, redisArgs.Key)
+			if err != nil {
+				return nil, err
+			}
+			return toBase64(uint64(rs.(int64))), nil
 		}
 	default:
 		{
@@ -133,6 +152,24 @@ func redisGet(conn *redis.Client, key string) (any, error) {
 	return data["data"], nil
 }
 
+func redisIncr(conn *redis.Client, key string) (any, error) {
+	exists := conn.Exists(context.TODO(), key)
+	if exists.Err() != nil {
+		return nil, exists.Err()
+	}
+	if exists.Val() == 0 {
+		rs := conn.Set(context.TODO(), key, 0, 0)
+		if rs.Err() != nil {
+			return nil, rs.Err()
+		}
+	}
+	rs := conn.Incr(context.TODO(), key)
+	if rs.Err() != nil {
+		return "", rs.Err()
+	}
+	return rs.Val(), nil
+}
+
 func parseRedisArgs(rawArg []any) (*RedisArgs, error) {
 	len := len(rawArg)
 	if len < _redisArgsFieldCount {
@@ -178,6 +215,15 @@ func parseRedisArgs(rawArg []any) (*RedisArgs, error) {
 		}
 	}
 	return &redisArgs, nil
+}
+
+func toBase64(n uint64) string {
+	block := make([]string, 0)
+	for n != 0 {
+		block = append(block, string(_dictionary[n%64]))
+		n /= 64
+	}
+	return strings.Join(block, "")
 }
 
 func RegisterRedisConnection(name string, instanceCreator func() (*redis.Client, error)) error {
